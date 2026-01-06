@@ -20,7 +20,7 @@ def upsample(in_tens, out_HW=(64,64)): # assumes scale factor is same for H and 
 
 # Learned perceptual metric
 class LPIPS(nn.Module):
-    def __init__(self, pretrained=True, net='alex', version='0.1', lpips=True, spatial=False, 
+    def __init__(self, pretrained=True, net='alex', version='0.1', lpips=True, spatial=False, monotonic_postprocessor=False,
         pnet_rand=False, pnet_tune=False, use_dropout=True, model_path=None, eval_mode=True, verbose=True):
         """ Initializes a perceptual loss torch.nn.Module
 
@@ -43,6 +43,11 @@ class LPIPS(nn.Module):
             ['v0.0'] contained a normalization bug; corresponds to old arxiv v1 (https://arxiv.org/abs/1801.03924v1)
         model_path : 'str'
             [None] is default and loads the pretrained weights from paper https://arxiv.org/abs/1801.03924v1
+        monotonic_postprocessor : bool
+            This flag controls whether the lpips loss was trained with the original BCE ranking loss from the paper
+            or a monotonic version with an MLP with positive weights (monotonic BCE ranking loss).
+            [False] means no monotonic postprocessor
+            [True] means use monotonic postprocessor. Only allowed for version 0.1 and vgg network
 
         The following parameters should only be changed if training the network
 
@@ -69,7 +74,8 @@ class LPIPS(nn.Module):
         self.lpips = lpips # false means baseline of just averaging all layers
         self.version = version
         self.scaling_layer = ScalingLayer()
-
+        self.monotonic_postprocessor = monotonic_postprocessor
+        
         if(self.pnet_type in ['vgg','vgg16']):
             net_type = pn.vgg16
             self.chns = [64,128,256,512,512]
@@ -100,7 +106,7 @@ class LPIPS(nn.Module):
                 if(model_path is None):
                     import inspect
                     import os
-                    model_path = os.path.abspath(os.path.join(inspect.getfile(self.__init__), '..', 'weights/v%s/%s.pth'%(version,net)))
+                    model_path = os.path.abspath(os.path.join(inspect.getfile(self.__init__), '..', 'weights/v%s/%s%s.pth'%(version,net, '_monotonic' if self.monotonic_postprocessor else '')))
 
                 if(verbose):
                     print('Loading model from: %s'%model_path)
@@ -182,6 +188,28 @@ class Dist2LogitLayer(nn.Module):
 
     def forward(self,d0,d1,eps=0.1):
         return self.model.forward(torch.cat((d0,d1,d0-d1,d0/(d1+eps),d1/(d0+eps)),dim=1))
+
+class MonotonicBCERankingLoss(nn.Module):
+    def __init__(self):
+        super(MonotonicBCERankingLoss, self).__init__()
+        self.bce_loss = nn.BCELoss()
+        
+        self.net = nn.Sequential(
+            nn.Linear(1, 16),
+            nn.ReLU(),
+            nn.Linear(16, 16),
+            nn.ReLU(),
+            nn.Linear(16,1),
+        )
+        self.sigmoid = nn.Sigmoid()
+        
+    def forward(self, d0, d1, judge):
+        per = (judge+1.)/2.
+
+        # positive if d1 lower than d0, meaning that image 1 is closer than image 0
+        difference = d0 - d1
+        probability = self.sigmoid(self.net(difference))
+        return self.bce_loss(probability, per)
 
 class BCERankingLoss(nn.Module):
     def __init__(self, chn_mid=32):

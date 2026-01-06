@@ -13,6 +13,7 @@ from IPython import embed
 parser = argparse.ArgumentParser()
 parser.add_argument('--datasets', type=str, nargs='+', default=['train/traditional','train/cnn','train/mix'], help='datasets to train on: [train/traditional],[train/cnn],[train/mix],[val/traditional],[val/cnn],[val/color],[val/deblur],[val/frameinterp],[val/superres]')
 parser.add_argument('--model', type=str, default='lpips', help='distance model type [lpips] for linearly calibrated net, [baseline] for off-the-shelf network, [l2] for euclidean distance, [ssim] for Structured Similarity Image Metric')
+parser.add_argument('--monotonic_postprocessor', action='store_true', help='Use monotonic postprocessor')
 parser.add_argument('--net', type=str, default='alex', help='[squeeze], [alex], or [vgg] for network architectures')
 parser.add_argument('--batch_size', type=int, default=50, help='batch size to test image patches in')
 parser.add_argument('--use_gpu', action='store_true', help='turn on flag to use GPU')
@@ -41,10 +42,12 @@ opt.save_dir = os.path.join(opt.checkpoints_dir,opt.name)
 if(not os.path.exists(opt.save_dir)):
     os.mkdir(opt.save_dir)
 
+print('Using monotonic postprocessor: ', opt.monotonic_postprocessor)
+
 # initialize model
 trainer = lpips.Trainer()
 trainer.initialize(model=opt.model, net=opt.net, use_gpu=opt.use_gpu, is_train=True, 
-    pnet_rand=opt.from_scratch, pnet_tune=opt.train_trunk, gpu_ids=opt.gpu_ids)
+    pnet_rand=opt.from_scratch, pnet_tune=opt.train_trunk, gpu_ids=opt.gpu_ids, monotonic_postprocessor=opt.monotonic_postprocessor)
 
 # load data from all training sets
 data_loader = dl.CreateDataLoader(opt.datasets,dataset_mode='2afc', batch_size=opt.batch_size, serial_batches=False, nThreads=opt.nThreads)

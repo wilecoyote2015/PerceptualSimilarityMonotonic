@@ -18,7 +18,7 @@ class Trainer():
 
     def initialize(self, model='lpips', net='alex', colorspace='Lab', pnet_rand=False, pnet_tune=False, model_path=None,
             use_gpu=True, printNet=False, spatial=False, 
-            is_train=False, lr=.0001, beta1=0.5, version='0.1', gpu_ids=[0]):
+            is_train=False, lr=.0001, beta1=0.5, version='0.1', gpu_ids=[0], monotonic_postprocessor=False):
         '''
         INPUTS
             model - ['lpips'] for linearly calibrated network
@@ -44,6 +44,7 @@ class Trainer():
         self.is_train = is_train
         self.spatial = spatial
         self.model_name = '%s [%s]'%(model,net)
+        self.monotonic_postprocessor = monotonic_postprocessor
 
         if(self.model == 'lpips'): # pretrained net + linear layer
             self.net = lpips.LPIPS(pretrained=not is_train, net=net, version=version, lpips=True, spatial=spatial, 
@@ -64,7 +65,10 @@ class Trainer():
 
         if self.is_train: # training mode
             # extra network on top to go from distances (d0,d1) => predicted human judgment (h*)
-            self.rankLoss = lpips.BCERankingLoss()
+            if self.monotonic_postprocessor:
+                self.rankLoss = lpips.MonotonicBCERankingLoss()
+            else:
+                self.rankLoss = lpips.BCERankingLoss()
             self.parameters += list(self.rankLoss.net.parameters())
             self.lr = lr
             self.old_lr = lr
@@ -105,6 +109,11 @@ class Trainer():
         for module in self.net.modules():
             if(hasattr(module, 'weight') and module.kernel_size==(1,1)):
                 module.weight.data = torch.clamp(module.weight.data,min=0)
+                
+        if self.monotonic_postprocessor:
+            with torch.no_grad():
+                for param in self.rankLoss.parameters():
+                    param.clamp_(min=0)
 
     def set_input(self, data):
         self.input_ref = data['ref']
