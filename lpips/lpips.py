@@ -20,7 +20,7 @@ def upsample(in_tens, out_HW=(64,64)): # assumes scale factor is same for H and 
 
 # Learned perceptual metric
 class LPIPS(nn.Module):
-    def __init__(self, pretrained=True, net='alex', version='0.1', lpips=True, spatial=False, monotonic_postprocessor=False,
+    def __init__(self, pretrained=True, net='alex', version='0.1', lpips=True, spatial=False, monotonic_postprocessor=False, fixed_normalization=False,
         pnet_rand=False, pnet_tune=False, use_dropout=True, model_path=None, eval_mode=True, verbose=True):
         """ Initializes a perceptual loss torch.nn.Module
 
@@ -48,6 +48,9 @@ class LPIPS(nn.Module):
             or a monotonic version with an MLP with positive weights (monotonic BCE ranking loss).
             [False] means no monotonic postprocessor
             [True] means use monotonic postprocessor. Only allowed for version 0.1 and vgg network
+        fixed_normalization : bool
+            [False] means use the original normalization of the LPIPS loss
+            [True] means use a fixed normalization of the LPIPS loss
 
         The following parameters should only be changed if training the network
 
@@ -75,6 +78,7 @@ class LPIPS(nn.Module):
         self.version = version
         self.scaling_layer = ScalingLayer()
         self.monotonic_postprocessor = monotonic_postprocessor
+        self.fixed_normalization = fixed_normalization
         
         if(self.pnet_type in ['vgg','vgg16']):
             net_type = pn.vgg16
@@ -106,7 +110,12 @@ class LPIPS(nn.Module):
                 if(model_path is None):
                     import inspect
                     import os
-                    model_path = os.path.abspath(os.path.join(inspect.getfile(self.__init__), '..', 'weights/v%s/%s%s.pth'%(version,net, '_monotonic' if self.monotonic_postprocessor else '')))
+                    suffix = ''
+                    if self.monotonic_postprocessor:
+                        suffix += '_monotonic'
+                    if self.fixed_normalization:
+                        suffix += '_fixed_normalization'
+                    model_path = os.path.abspath(os.path.join(inspect.getfile(self.__init__), '..', 'weights/v%s/%s%s.pth'%(version,net, suffix)))
 
                 if(verbose):
                     print('Loading model from: %s'%model_path)
